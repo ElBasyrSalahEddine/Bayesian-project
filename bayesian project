@@ -1,0 +1,368 @@
+---
+title : "Bayesian project(modeling and predicting audience score for movies)"
+author : "Salah-Eddine El Basyr"
+output : pdf_document 
+theme : spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(BAS)
+```
+
+### Load data
+
+```{r load-data}
+load("movies.Rdata")
+```
+
+
+## Part 1: Data
+
+The data that we have here is from an observational study of random sample of 651
+movies produced and released before 2016 , it includes information from [link](http://www.rottentomatoes.com/)
+and [link2](http://www.imdb.com/).
+
+Since we use a past data in this study, so it's a retrospective study, which
+means it's an observational study , and with a random sample of 651 movies , we 
+can say that is generalizable 
+
+As we said it's an observational study , we interested in the correlation between 
+a variables only, not a causal connections, and data itself were collected by 
+a random sampling only, not with a random assignment.
+
+## Part 2: Data manipulation
+
+```{r add new variables}
+movies <- movies %>%
+  mutate(feature_film = if_else(title_type == "Feature Film", "Yes", "No"),
+         drama = if_else(genre == "Drama", "Yes", "No"),
+         mpaa_rating_R = if_else(mpaa_rating == "R", "Yes", "No"),
+         oscar_season = if_else(thtr_rel_month %in% c(10,11,12), "Yes", "No"),
+         summer_season = if_else(thtr_rel_month %in% c(5,6,7,8), "Yes", "No"))
+
+```
+
+
+## Part 3: Exploratory data analysis
+
+
+```{r making a summary statistics}
+summary(movies$audience_score)
+```
+
+
+
+```{r plotting}
+ggplot(movies, aes(x = audience_score)) +
+  geom_histogram(binwidth = 2)
+```
+
+The audience score distribution is slightly left-skewed.
+
+
+```{r a brief summary for feature film}
+movies %>%
+  filter(feature_film == "No") %>%
+  summarize(min = min(audience_score),
+            first_qu = quantile(audience_score,0.25),
+            median = median(audience_score),
+            mean = mean(audience_score),
+            third_qu = quantile(audience_score, 0.75),
+            max = max(audience_score))
+            
+```
+
+
+```{r}
+movies %>%
+  filter(feature_film == "Yes") %>%
+  summarize(min = min(audience_score),
+            first_qu = quantile(audience_score,0.25),
+            median = median(audience_score),
+            mean = mean(audience_score),
+            third_qu = quantile(audience_score, 0.75),
+            max = max(audience_score))
+```
+
+
+```{r}
+ggplot(movies, aes(x = feature_film, y =, audience_score)) +
+  geom_boxplot() +
+  ylab("Audience score")
+  
+```
+
+The average audience score for non-feature movies 81.05 are higher than the average
+audience score for the feature movies 60.47, which means that audience likes documentary
+and TV movies more than the feature movies , as shown in the box-plot.
+
+
+```{r}
+movies %>%
+  filter(drama == "Yes") %>%
+  summarise(min = min(audience_score),
+            first_qu = quantile(audience_score,0.25),
+            median = median(audience_score),
+            mean = mean(audience_score),
+            third_qu = quantile(audience_score, 0.75),
+            max = max(audience_score))
+```
+
+
+```{r}
+movies %>%
+  filter(drama == "No") %>%
+  summarise(min = min(audience_score),
+            first_qu = quantile(audience_score,0.25),
+            median = median(audience_score),
+            mean = mean(audience_score),
+            third_qu = quantile(audience_score, 0.75),
+            max = max(audience_score))
+```
+
+
+```{r}
+ggplot(movies, aes(x = drama, y = audience_score)) +
+  geom_boxplot() +
+  ylab("Audience score")
+```
+
+For the  Drama factor we see that average score for Drama movies 
+are higher than other movies genre (action, adventure, horror....) .
+
+```{r}
+ggplot(movies, aes(x = imdb_rating, y = audience_score)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = FALSE)
+```
+
+We can see through the scatter plot , there is a positive association between
+the audience score and the imdb rating.
+
+
+```{r}
+ggplot(movies, aes(x = critics_score, y = audience_score)) +
+  geom_point() +
+  stat_smooth(method = "lm", se = F)
+```
+
+There is also a positive relation between the audience score and the critics score.
+
+
+
+## Part 4: Modeling
+
+Before modeling will create a new data that is reduced and we select all variables 
+that will use for modeling
+
+
+```{r reducing data to only the variables for modeling}
+movies_red <- movies %>%
+  select(
+    audience_score ,
+    feature_film,
+    drama,
+    runtime,
+    mpaa_rating_R,
+    thtr_rel_year,
+    oscar_season,
+    summer_season,
+    imdb_rating,
+    imdb_num_votes,
+    critics_score,
+    best_pic_nom,
+    best_pic_win,
+    best_actor_win,
+    best_actress_win,
+    best_dir_win,
+    top200_box
+  )
+
+```
+
+```{r starting with a normal multiple regression}
+m_full_model <- lm(audience_score ~ ., data = movies_red)
+
+summary(m_full_model)
+```
+
+## Model diagnostics 
+
+**Linearity and Constant Variance** :
+
+```{r}
+library(broom)
+m_full_mode_aug <- augment(m_full_model)
+```
+
+```{r residuals}
+ggplot(m_full_mode_aug, aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = .5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Fitted values", y = "Residuals")
+```
+
+The residuals are normally distributed around 0.
+
+
+**Normality**:
+
+
+```{r}
+hist(m_full_mode_aug$.resid)
+```
+
+The histogram shows as there is a slightly right skewed
+
+```{r}
+ggplot(m_full_mode_aug) +
+  geom_qq(aes(sample = .std.resid)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(x = "Theoretical quantiles", y = "Standardized residuals")
+```
+The Standardized residuals are close the line which mean we have a linear function,
+and the residuals are normally distibuted.
+
+
+We will use the Bayesian information criterion (BIC) to the full model but
+instead of using the `BIC` function we'll use the `stepAIC` function that will
+work backwards with  `k = log(n)`
+
+```{r using AIC for reporting the best model}
+library(MASS)
+n <- nrow(movies_red)
+stepAIC(m_full_model, k = log(n))
+
+```
+
+As a result the Bayesian information criterion the best model is :
+
+audience score = -33.28321 - 0.05362* runtime + 14.98076 * imdb rating + 0.07036 * critics score.
+
+### Bayesian model averaging :
+
+This time we'll choose another way of modeling that is bayesian model averaging (BMA).
+first will exclude observations with missing values in the data set
+
+```{r using BMA for devlopping a model}
+movies_no_na <- na.omit(movies_red)
+
+# Fit the model using Bayesian linear regression
+
+bma_score <- bas.lm(audience_score ~ ., data = movies_no_na,
+                    prior = "BIC",
+                    modelprior = uniform())
+
+# Print out the marginal posterior inclusion probabilities for each variable
+
+bma_score
+
+#  Top 5 most probably models
+summary(bma_score)
+
+# plotting the coefficients 
+
+image(bma_score, rotate = F)
+```
+
+We see here that highest posterior probability included in the model is for 
+`imdb rating` is 1, also `critics score` have a great posterior probability is 0.90
+which favores those two coefficients to be in the model more than other coefficients.
+
+
+```{r}
+# Obtain the coefficients from the mode
+coef_score <- coefficients(bma_score)
+
+coef_score
+```
+
+``` {r}
+#plot variables imdb rating and critics score
+plot(coef_score, subset = c(3, 9, 11, 13), ask = F)
+
+```
+
+This plots agrees with the summary table we obtained above, which shows the 
+posterior probability distributions of other variables like `drama` and `best pic win` 
+that have a very large point mass at 0. while the the distribution of `critic score`
+has a relatively small mass at 0, and a posterior probability for `imdb rating` 
+of 1, And the probability of mass of it it's 0 is so small, which means we almost
+sure that `imdb rating` should included under the Bayesian model averaging.
+
+
+
+### Devlopping the final model
+
+```{r devloping the final model}
+# using the BPM estimator 
+BPM_pred_score <- predict(bma_score, estimator = "BPM", se.fit = TRUE)
+variable.names(BPM_pred_score)
+```
+
+
+```{r HPM}
+# using the HPM estimator
+HPM_pred_score <- predict(bma_score, estimator = "HPM")
+variable.names(HPM_pred_score) 
+```
+
+
+```{r MPM}
+# using the MPM estimator
+MPM_pred_score <- predict(bma_score, estimator = "MPM")
+variable.names(MPM_pred_score)
+```
+
+We find that two models have the same coefficients and we decide to use one final
+model is for the `BPM` estimator, and that's our final model .
+
+
+
+## Part 5: Prediction
+
+we want to predict audience score for a movie in 2016, so we choose `La La land`
+for it
+
+```{r creating new data for la la land movie}
+la_la_land <- data.frame(runtime = 168, imdb_rating = 8, critics_score = 44, feature_film = "Yes",
+                         drama = "Yes", mpaa_rating_R = "No", thtr_rel_year = 2016, 
+                         oscar_season = "Yes", summer_season = "No", imdb_num_votes = 579711, 
+                         best_pic_nom = "no", best_pic_win = "no", best_actor_win ="no", 
+                         best_actress_win = "yes", best_dir_win = "yes", top200_box = "yes")
+```
+
+
+
+
+```{r predicting the audience score}
+predict1 <- predict(bma_score, la_la_land, estimator = "BPM", se.fit = TRUE)
+
+confint(predict1, parm = "pred")
+``` 
+
+ Our model that we select to do prediction for the audience score give us the 
+ predicted audience score is roughly 82.3, which is pretty close to the real 
+ audience score of 81.
+
+## Part 6: Conclusion
+
+Using Bayesian methods, our team obtained significant results regarding three 
+different models that could predict audience score.
+
+Given the data, the optimal model we were able to find contained the following 
+variables: critic score, runtime, and IMDb rating. On average, these variables 
+have the greatest impact on a movie's ratings. We choose our final model based 
+on the best predictive model (`BPM`), the one which has the one which has 
+predictions closest to BMA and corresponding posterior standard deviations.
+
+For shortcomings, we found that the there is a missing value for the data frame,
+also another disadvantage of this analysis is the lack of previous models. 
+If we use better prior models for regression, it will greatly improve the research.
